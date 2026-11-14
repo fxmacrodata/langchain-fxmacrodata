@@ -15,7 +15,7 @@ MAX_BODY = 2_000_000
 OPERATIONS: tuple[tuple[str, str, str], ...] = (
     ("GET", "/v1/announcements/changes", "currencies indicators since limit payload strict_cursor"),
     ("GET", "/v1/announcements/{currency}/latest", ""),
-    ("GET", "/v1/announcements/{currency}/{indicator}", "start_date end_date series_mode limit offset page seasonality frequency annualization period_aggregation revisions basis base official_only fields as_of availability dataset_version value_mode"),
+    ("GET", "/v1/announcements/{currency}/{indicator}", "start_date end_date series_mode limit offset page seasonality frequency annualization period_aggregation revisions basis base date_basis official_only fields as_of availability dataset_version value_mode"),
     ("GET", "/v1/calendar/{currency}", "indicator start_date end_date timezone"),
     ("GET", "/v1/calendar/{currency}/coverage", "start_date end_date as_of"),
     ("GET", "/v1/calendar/{currency}/events/{archive_event_id}/versions", "checkpoint cursor limit"),
@@ -111,12 +111,21 @@ def request(
     api_key: str | None = None,
     timeout: float = 30,
     extra_headers: dict[str, str] | None = None,
+    json_body: dict | None = None,
 ) -> tuple[int, str]:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or parsed.netloc != "api.fxmacrodata.com":
         raise FXMacroDataError("requests stay on https://api.fxmacrodata.com")
-    if method != "GET":
-        raise FXMacroDataError("this client sends GET requests only")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise FXMacroDataError("invalid API URL")
+    if any(name.lower() in {"api_key", "x-api-key", "authorization"}
+           for name, _ in urllib.parse.parse_qsl(parsed.query)):
+        raise FXMacroDataError("API key must not be placed in the URL")
+    if method == "POST":
+        if parsed.path != "/v1/research/panel" or parsed.query or json_body is None:
+            raise FXMacroDataError("POST requires a research panel JSON body")
+    elif method != "GET" or json_body is not None:
+        raise FXMacroDataError("unsupported method or body")
     headers = {"Accept": "application/json", "User-Agent": "langchain-fxmacrodata/0.1"}
     for name, value in (extra_headers or {}).items():
         if name.lower() in {"x-api-key", "authorization", "host"}:
@@ -125,7 +134,13 @@ def request(
             headers[name] = value
     if api_key:
         headers["X-API-Key"] = api_key
-    call = urllib.request.Request(url, headers=headers, method="GET")
+    data = None
+    if json_body is not None:
+        data = json.dumps(json_body, allow_nan=False).encode("utf-8")
+        if len(data) > MAX_BODY:
+            raise FXMacroDataError("request exceeds 2 MB")
+        headers["Content-Type"] = "application/json"
+    call = urllib.request.Request(url, headers=headers, data=data, method=method)
     try:
         with _opener().open(call, timeout=timeout) as response:
             status = getattr(response, "status", 200)
@@ -142,9 +157,18 @@ def request(
     return status, body.decode("utf-8")
 
 
-def call_operation(template: str, query_names: str, values: dict[str, str], transport=None) -> str:
+def call_operation(template: str, query_names: str, values: dict, transport=None, *, json_transport=None) -> str:
     if template == "/v1/research/panel":
-        raise FXMacroDataError("the research panel needs a JSON body and is not a GET")
+        from langchain_fxmacrodata.schemas import ResearchPanelRequest
+
+        payload = ResearchPanelRequest.model_validate(values).model_dump(mode="json", exclude_unset=True)
+        url = build_url(template, "", {})
+        key = os.environ.get("FXMACRODATA_API_KEY", "").strip() or None
+        if json_transport is None:
+            status, body = request("POST", url, key, json_body=payload)
+        else:
+            status, body = json_transport("POST", url, key, payload)
+        return body if status == 200 else json.dumps({"status": status, "body": body}, ensure_ascii=False)
     url = build_url(template, query_names, values)
     key = os.environ.get("FXMACRODATA_API_KEY", "").strip() or None
     if "api_key=" in url:

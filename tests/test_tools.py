@@ -7,11 +7,11 @@ from langchain_fxmacrodata.tools import fxmacrodata_tools, tool_name
 
 
 class ToolTests(unittest.TestCase):
-    def test_every_get_operation_is_a_distinct_tool(self) -> None:
+    def test_every_operation_is_a_distinct_tool(self) -> None:
         tools = fxmacrodata_tools(transport=lambda method, url, key: (200, url))
         names = [tool.name for tool in tools]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual(len(tools), sum(method == "GET" for method, _path, _query in OPERATIONS))
+        self.assertEqual(len(tools), len(OPERATIONS))
         self.assertGreater(len(tools), 40)
         self.assertIn("fxmacrodata_data_catalogue_currency", names)
 
@@ -40,9 +40,9 @@ class ToolTests(unittest.TestCase):
             tool = next(item for item in fxmacrodata_tools(transport=transport) if item.name == tool_name("/v1/forex/{base}/{quote}"))
             self.assertEqual(tool.invoke({"base": "EUR", "quote": "USD"}), "not-a-real-key")
 
-    def test_research_panel_is_refused(self) -> None:
+    def test_research_panel_requires_valid_body(self) -> None:
         with self.assertRaises(Exception):
-            call_operation("/v1/research/panel", "", {})
+            call_operation("/v1/research/panel", "", {}, json_transport=lambda *args: (200, "{}"))
 
     def test_origin_cannot_be_replaced(self) -> None:
         with self.assertRaises(Exception):

@@ -1,6 +1,6 @@
 # What the tools cover
 
-`fxmacrodata_tools()` returns one LangChain tool for each public GET route.
+`fxmacrodata_tools()` returns 43 LangChain tools: 42 GET operations and the research-panel POST operation.
 
 | Data | Tool |
 | --- | --- |
@@ -13,7 +13,10 @@
 | Market sessions | `fxmacrodata_market_sessions` |
 | COT and positioning | `fxmacrodata_cot_*` and `fxmacrodata_positioning_*` |
 | Commodities, curves, factors and prices | the matching GET tools |
+| Point-in-time research panel | `fxmacrodata_research_panel` with a validated JSON request |
 | Event stream | `fxmacrodata_stream_events` |
+
+Macro history accepts `date_basis="effective_date"` or `date_basis="meeting_date"` when supported by the indicator catalogue.
 
 USD catalogue, USD macro history and the USD release calendar need no API key. Set `FXMACRODATA_API_KEY` when a route requires one.
 
